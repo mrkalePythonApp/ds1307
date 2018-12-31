@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """This file is part of the libsigrokdecode project.
 
 Copyright (C) 2018 Libor Gabaj <libor.gabaj@gmail.com>

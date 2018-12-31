@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """This file is part of the libsigrokdecode project.
 
 Copyright (C) 2018 Libor Gabaj <libor.gabaj@gmail.com>
@@ -91,7 +92,7 @@ class Decoder(srd.Decoder):
     id = "ds1307"
     name = "DS1307"
     longname = "Dallas DS1307 RTC chip"
-    desc = "Realtime clock module protocol."
+    desc = "Real time clock chip protocol decoder, v 1.0.0."
     license = "gplv2+"
     inputs = ["i2c"]
     outputs = ["ds1307"]
