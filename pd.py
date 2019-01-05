@@ -86,7 +86,7 @@ class AnnStrings:
 
 
 class Decoder(srd.Decoder):
-    """Protocol decoder for real time clock chip  ``DS1307``."""
+    """Protocol decoder for real time clock chip ``DS1307``."""
 
     api_version = 3
     id = "ds1307"
@@ -141,10 +141,11 @@ class Decoder(srd.Decoder):
     )
 
     annotation_rows = (
-        ("bits", "Bits", tuple(range(9, 24))),
+        ("bits", "Bits", tuple(range(AnnBitsCtlr.RESERVED,
+                                     AnnBitsTime.NVRAM + 1))),
         ("regs", "Registers", tuple(range(AnnRegs.SECOND, AnnRegs.NVRAM + 1))),
-        ("datetime", "Date/time", tuple(range(AnnStrings.DTREAD,
-                                              AnnStrings.WARN))),
+        ("datetime", "Datetime", tuple(range(AnnStrings.DTREAD,
+                                             AnnStrings.WARN))),
         ("warnings", "Warnings", (AnnStrings.WARN,))
     )
 
@@ -183,7 +184,7 @@ class Decoder(srd.Decoder):
         """Actions before the beginning of the decoding."""
         self.out_ann = self.register(srd.OUTPUT_ANN)
 
-    def check_chip(self, addr_slave):
+    def check_slave(self, addr_slave):
         """Check correct slave address of the chip."""
         if self.ADDRESS == addr_slave:
             return True
@@ -414,7 +415,7 @@ class Decoder(srd.Decoder):
         self.year += 2000
 
     def handle_reg_0x07(self, databyte):
-        """Control Register."""
+        """Process control register."""
         # Registers row
         self.put_data(7, 0, [AnnRegs.CONTROL,
                              [self.annotations[AnnRegs.CONTROL][1],
@@ -471,7 +472,7 @@ class Decoder(srd.Decoder):
         self.put_data(7, 0, [AnnBitsTime.NVRAM, annots])
 
     def decode(self, startsample, endsample, data):
-        """Decode samples in infinite wait loop."""
+        """Decode samples provided by parent decoder."""
         cmd, databyte = data
         self.ss, self.es = startsample, endsample
 
@@ -506,7 +507,7 @@ class Decoder(srd.Decoder):
             """
             if cmd != "ADDRESS WRITE":
                 return
-            if not self.check_chip(databyte):
+            if not self.check_slave(databyte):
                 self.state = "IDLE"  # Start waiting for expected transmission
                 return
             self.state = "ADDRESS REGISTER"
@@ -534,7 +535,7 @@ class Decoder(srd.Decoder):
                 self.handle_reg(databyte)
             elif cmd == "STOP":
                 """Output formatted string with written data.
-                - This is and of a I2C transmission. Start waiting for another
+                - This is end of an I2C transmission. Start waiting for another
                   one.
                 """
                 self.output_datetime(AnnStrings.DTWRITE, "Written")
@@ -546,7 +547,7 @@ class Decoder(srd.Decoder):
             """
             if cmd != "ADDRESS READ":
                 return
-            if not self.check_chip(databyte):
+            if not self.check_slave(databyte):
                 self.state = "IDLE"  # Start waiting for expected transmission
                 return
             self.state = "SUBSEQUENT READ"
