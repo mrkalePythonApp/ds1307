@@ -539,13 +539,13 @@ class Decoder(srd.Decoder):
             self.put_data(TimeBits.AMPM, TimeBits.AMPM, [AnnBits.AMPM, annots])
             # Bits row - hours
             self.hour = bcd2int(self.bytes[0] & 0x1f)
-            annots = self.compose_annot(bits[AnnBits.HOUR],
-                                        ann_value=self.hour)
-            self.put_data(TimeBits.AMPM - 1, 0, [AnnBits.MODE, annots])
             # Convert to 24h expression
             self.hour %= 12
             if pm:
                 self.hour += 12
+            annots = self.compose_annot(bits[AnnBits.HOUR],
+                                        ann_value=self.hour)
+            self.put_data(TimeBits.AMPM - 1, 0, [AnnBits.MODE, annots])
         else:
             # Bits row - 24h mode
             annots = self.compose_annot(bits[AnnBits.MODE],
