@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """This file is part of the libsigrokdecode project.
 
-Copyright (C) 2018 Libor Gabaj <libor.gabaj@gmail.com>
+Copyright (C) 2018-2019 Libor Gabaj <libor.gabaj@gmail.com>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -21,9 +21,110 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 import sigrokdecode as srd
 from common.srdhelper import bcd2int
 
+
+###############################################################################
+# Enumeration classes for device parameters
+###############################################################################
+class Address:
+    """Enumeration of possible slave addresses."""
+
+    (SLAVE,) = (0x68,)
+
+
+class Register:
+    """Enumeration of possible slave register addresses."""
+
+    (
+        SECOND, MINUTE, HOUR, WEEKDAY, DAY, MONTH, YEAR,
+        CONTROL, NVRAM
+    ) = range(0, 9)
+
+
+class CommonBits:
+    """Enumeration of common bits."""
+
+    (RESERVED,) = (0xff,)
+
+
+class ControlBits:
+    """Enumeration of bits in the control register."""
+
+    (RS0, RS1, SQWE, OUT) = (0, 1, 4, 7)
+
+
+class TimeBits:
+    """Enumeration of bits in the time keeping registers."""
+
+    (AMPM, MODE, CH) = (5, 6, 7)
+
+
+class NvRAM:
+    """Internal non-volatile memory address range of DS1307.
+
+    - Minimal and maximal position.
+    """
+
+    (MIN, MAX) = (0x08, 0x3f)
+
+
+###############################################################################
+# Enumeration classes for annotations
+###############################################################################
+class AnnAddrs:
+    """Enumeration of annotations for addresses."""
+
+    (SLAVE,) = (0,)
+
+
+class AnnRegs:
+    """Enumeration of annotations for registers."""
+
+    (
+        SECOND, MINUTE, HOUR, WEEKDAY, DAY, MONTH, YEAR,
+        CONTROL, NVRAM
+    ) = range(AnnAddrs.SLAVE + 1, (AnnAddrs.SLAVE + 1) + 9)
+
+
+class AnnBits:
+    """Enumeration of annotations for configuration bits."""
+
+    (
+        RESERVED, DATA,         # General bits
+        RS0, RS1, SQWE, OUT,    # From control register
+        AMPM, MODE, CH,         # From time keeping registers
+        SECOND, MINUTE, HOUR,
+        WEEKDAY, DAY, MONTH, YEAR,
+        NVRAM,
+    ) = range(AnnRegs.NVRAM + 1, (AnnRegs.NVRAM + 1) + 17)
+
+
+class AnnInfo:
+    """Enumeration of annotations for formatted info."""
+
+    (
+        WARN, BADADD, CHECK, WRITE, READ,
+        DATETIME, NVRAM,    # Datetime formatting
+    ) = range(AnnBits.NVRAM + 1, (AnnBits.NVRAM + 1) + 7)
+
+
+###############################################################################
+# Parameters mapping
+###############################################################################
+radixes = {  # Convert radix option to format mask
+    "Hex": "{:#02x}",
+    "Dec": "{:#d}",
+    "Oct": "{:#o}",
+}
+
 weekdays = (
     "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
     "Saturday", "Sunday"
+)
+
+months = (
+    "Unknown",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
 )
 
 rates = {
@@ -33,58 +134,94 @@ rates = {
     0b11: 32768,
 }
 
-bits = {
-    # Time keeping regiters
-    "CH": 0x07,
-    "MODE": 0x06,
-    "AMPM": 0x05,
-    # Control register
-    "OUT": 0x07,
-    "SQWE": 0x04,
-    "RS1": 0x01,
-    "RS0": 0x00,
+params = {
+    "UNIT_HZ": "Hz",
+    "UNIT_KHZ": "kHz",
 }
 
 
-class AnnRegs:
-    """Enumeration of annotations for registers."""
+###############################################################################
+# Parameters anotations definitions
+###############################################################################
+"""
+- If a parameter has a value, the last item of an annotation list is used
+  repeatedly without a value.
+- If a parameter has measurement unit alongside with value, the last two items
+  are used repeatedly without that measurement unit.
+"""
+addresses = {
+    AnnAddrs.SLAVE: ["Device address", "Address", "Add", "A"],
+}
 
-    (
-        SECOND, MINUTE, HOUR, WEEKDAY, DAY, MONTH, YEAR,
-        CONTROL, NVRAM
-    ) = range(0, 9)
+registers = {
+    AnnRegs.SECOND: ["Seconds register", "Seconds", "Secs", "S"],
+    AnnRegs.MINUTE: ["Minutes register", "Minutes", "Mins", "M"],
+    AnnRegs.HOUR: ["Hours register", "Hours", "Hrs", "H"],
+    AnnRegs.WEEKDAY: ["Weekdays register", "Weekdays", "W"],
+    AnnRegs.DAY: ["Days register", "Days", "D"],
+    AnnRegs.MONTH: ["Months register", "Months", "Mons", "M"],
+    AnnRegs.YEAR: ["Years register", "Years", "Yrs", "Y"],
+    AnnRegs.CONTROL: ["Control register", "Control", "Ctrl", "C"],
+    AnnRegs.NVRAM: ["Non-volatile memory register", "NV-RAM", "NVR", "R"],
+}
+
+bits = {
+    AnnBits.RESERVED: ["Reserved bit", "Reserved", "Rsvd", "R"],
+    AnnBits.DATA: ["Data bit", "Data", "D"],
+    AnnBits.RS0: ["Rate select bits", "Rate select", "Rate", "RS"],
+    AnnBits.SQWE: ["SQW enable bit", "SQW enable", "SQWE", "SE", "S"],
+    AnnBits.OUT: ["OUT bit", "OUT", "O"],
+    AnnBits.AMPM: ["AM/PM bit", "AM/PM", "A/P", "A"],
+    AnnBits.MODE: ["12/24 hours mode bit", "12/24 mode", "Mode", "M"],
+    AnnBits.CH: ["Clock halt bit", "Clock halt", "CH", "H"],
+    AnnBits.SECOND: ["Second bits", "Second", "Sec", "S"],
+    AnnBits.MINUTE: ["Minute bits", "Minute", "Min", "M"],
+    AnnBits.HOUR: ["Hour bits", "Hour", "Hr", "H"],
+    AnnBits.WEEKDAY: ["Weekday bits", "Weekday", "WD", "W"],
+    AnnBits.DAY: ["Day bits", "Day", "D"],
+    AnnBits.MONTH: ["Month bits", "Month", "Mon", "M"],
+    AnnBits.YEAR: ["Year bits", "Year", "Yr", "Y"],
+    AnnBits.NVRAM: ["NVRAM", "RAM", "R"],
+}
+
+info = {
+    AnnInfo.WARN: ["Warnings", "Warn", "W"],
+    AnnInfo.BADADD: ["Uknown slave address", "Unknown address", "Uknown",
+                     "Unk", "U"],
+    AnnInfo.CHECK: ["Slave presence check", "Slave check", "Check",
+                    "Chk", "C"],
+    AnnInfo.WRITE: ["Write", "Wr", "W"],
+    AnnInfo.READ: ["Read", "Rd", "R"],
+    AnnInfo.DATETIME: ["Datetime", "Date", "D"],
+    AnnInfo.NVRAM: ["Memory", "Mem", "M"],
+}
 
 
-class AnnBitsCtlr:
-    """Enumeration of annotations for control bits."""
-
-    (
-        RESERVED,
-        CH, MODE, AMPM,     # From time keeping registers
-        OUT, SQWE, RATE     # From control registers
-    ) = range(AnnRegs.NVRAM + 1, 16)
-
-
-class AnnBitsTime:
-    """Enumeration of annotations for time keeping bits."""
-
-    (
-        SECOND, MINUTE, HOUR,       # From time registers
-        WEEKDAY, DAY, MONTH, YEAR,  # From date registers
-        NVRAM
-    ) = range(AnnBitsCtlr.RATE + 1, 24)
-
-
-class AnnStrings:
-    """Enumeration of annotations for formatted strings."""
-
-    (
-        DTREAD, DTWRITE,    # Datetime formatting
-        REGREAD, REDWRITE,  # Data formatting
-        WARN
-    ) = range(AnnBitsTime.NVRAM + 1, 29)
+def create_annots():
+    """Create a tuple with all annotation definitions."""
+    annots = []
+    # Addresses
+    for attr, value in vars(AnnAddrs).items():
+        if not attr.startswith('__') and value in addresses:
+            annots.append(tuple(["addr-" + attr.lower(), addresses[value][0]]))
+    # Registers
+    for attr, value in vars(AnnRegs).items():
+        if not attr.startswith('__') and value in registers:
+            annots.append(tuple(["reg-" + attr.lower(), registers[value][0]]))
+    # Bits
+    for attr, value in vars(AnnBits).items():
+        if not attr.startswith('__') and value in bits:
+            annots.append(tuple(["bit-" + attr.lower(), bits[value][0]]))
+    # Info
+    for attr, value in vars(AnnInfo).items():
+        if not attr.startswith('__') and value in info:
+            annots.append(tuple(["info-" + attr.lower(), info[value][0]]))
+    return tuple(annots)
 
 
+###############################################################################
+# Decoder
+###############################################################################
 class Decoder(srd.Decoder):
     """Protocol decoder for real time clock chip ``DS1307``."""
 
@@ -98,65 +235,21 @@ class Decoder(srd.Decoder):
     outputs = ["ds1307"]
 
     options = (
+        {"id": "radix", "desc": "Number format", "default": "Hex",
+         "values": ("Hex", "Dec", "Oct")},
         {"id": "start_weekday", "desc": "The first day of the week",
             "default": "Monday", "values": weekdays},
         {"id": "date_format", "desc": "Date format",
             "default": "European", "values": ("European", "American", "ANSI")}
     )
 
-    annotations = (
-        # Registers
-        ("reg-seconds", "Seconds register"),            # 0
-        ("reg-minutes", "Minutes register"),            # 1
-        ("reg-hours", "Hours register"),                # 2
-        ("reg-weekdays", "Weekdays register"),          # 3
-        ("reg-days", "Days register"),                  # 4
-        ("reg-months", "Months register"),              # 5
-        ("reg-years", "Years register"),                # 6
-        ("reg-control", "Control register"),            # 7
-        ("reg-nvram", "Non-volatile memory register"),  # 8
-        # Control bits
-        ("bit-reserved", "Reserved bit"),               # 9
-        ("bit-ch", "Clock halt bit"),                   # 10
-        ("bit-mode", "12/24 hours mode bit"),           # 11
-        ("bit-ampm", "AM/PM bit"),                      # 12
-        ("bit-out", "OUT bit"),                         # 13
-        ("bit-sqwe", "SQWE bit"),                       # 14
-        ("bit-rate", "Rate select bits"),               # 15
-        # Time keeping and NVRAM bits
-        ("bit-second", "Second bits"),                  # 16
-        ("bit-minute", "Minute bits"),                  # 17
-        ("bit-hour", "Hour bits"),                      # 18
-        ("bit-weekday", "Weekday bits"),                # 19
-        ("bit-date", "Date bits"),                      # 20
-        ("bit-month", "Month bits"),                    # 21
-        ("bit-year", "Year bits"),                      # 22
-        ("bit-nvram", "Non-volatile memory bits"),      # 23
-        # Strings
-        ("read-datetime", "Read datetime"),             # 24
-        ("write-datetime", "Write datetime"),           # 25
-        ("reg-read", "Register read"),                  # 26
-        ("reg-write", "Register write"),                # 27
-        ("warnings", "Warnings"),                       # 28
-    )
-
+    annotations = create_annots()
     annotation_rows = (
-        ("bits", "Bits", tuple(range(AnnBitsCtlr.RESERVED,
-                                     AnnBitsTime.NVRAM + 1))),
-        ("regs", "Registers", tuple(range(AnnRegs.SECOND, AnnRegs.NVRAM + 1))),
-        ("datetime", "Datetime", tuple(range(AnnStrings.DTREAD,
-                                             AnnStrings.WARN))),
-        ("warnings", "Warnings", (AnnStrings.WARN,))
+        ("bits", "Bits", tuple(range(AnnBits.RESERVED, AnnBits.NVRAM + 1))),
+        ("regs", "Registers", tuple(range(AnnAddrs.SLAVE, AnnRegs.NVRAM + 1))),
+        ("datetime", "Datetime", (AnnInfo.DATETIME, AnnInfo.NVRAM)),
+        ("warnings", "Warnings", (AnnInfo.WARN, AnnInfo.BADADD)),
     )
-
-    ADDRESS = 0x68
-    """str: Expected I2C address of the slave DS1307."""
-
-    NVRAM_MIN = 0x08
-    """str: Minimal position of the internal non-volatile memory of DS1307."""
-
-    NVRAM_MAX = 0x3f
-    """str: Maximal position of the internal non-volatile memory of DS1307."""
 
     def __init__(self):
         """Initialize decoder."""
@@ -167,11 +260,16 @@ class Decoder(srd.Decoder):
         # Common parameters for I2C sampling
         self.ss = 0         # Start sample
         self.es = 0         # End sample
-        self.ssb = 0        # Start sample of a formatted string block
-        self.bits = []
+        self.ssb = 0        # Start sample of an annotation transmission block
+        self.ssd = 0        # Start sample of an annotation data block
+        self.esd = 0        # End sample of an annotation data block
+        self.bits = []      # List of recent processed byte bits
+        self.bytes = []     # List of recent processed bytes
+        self.write = True   # Flag about recent write action (default write)
         self.state = "IDLE"
         # Specific parameters for a device
-        self.reg = -1                       # Processed slave register
+        self.addr = Address.SLAVE
+        self.reg = -1
         self.second = -1
         self.minute = -1
         self.hour = -1
@@ -184,15 +282,151 @@ class Decoder(srd.Decoder):
         """Actions before the beginning of the decoding."""
         self.out_ann = self.register(srd.OUTPUT_ANN)
 
-    def check_slave(self, addr_slave):
-        """Check correct slave address of the chip."""
-        if self.ADDRESS == addr_slave:
+    def compose_annot(self, ann_label, ann_value=None, ann_unit=None,
+                      ann_action=None):
+        """Compose list of annotations enriched with value and unit.
+
+        Arguments
+        ---------
+        ann_label : list
+            List of annotation label for enriching with values and units and
+            prefixed with actions.
+            *The argument is mandatory and has no default value.*
+        ann_value : list
+            List of values to be added item by item to all annotations.
+        ann_unit : list
+            List of measurement units to be added item by item to all
+            annotations. The method does not add separation space between
+            the value and the unit.
+        ann_action : list
+            List of action prefixes prepend item by item to all annotations.
+            The method separates action and annotation with a space.
+
+        Returns
+        -------
+        list of str
+            List of a annotations potentially enriched with values and units
+            with items sorted by length descending.
+
+        Notes
+        -----
+        - Usually just one value and one unit is used. However for flexibility
+          more of them can be used.
+        - If the annotation values list is not defined, the annotation units
+          list is not used, even if it is defined.
+
+        """
+        if not isinstance(ann_label, list):
+            tmp = ann_label
+            ann_label = []
+            ann_label.append(tmp)
+
+        if ann_value is None:
+            ann_value = []
+        elif not isinstance(ann_value, list):
+            tmp = ann_value
+            ann_value = []
+            ann_value.append(tmp)
+
+        if ann_unit is None:
+            ann_unit = []
+        elif not isinstance(ann_unit, list):
+            tmp = ann_unit
+            ann_unit = []
+            ann_unit.append(tmp)
+
+        if ann_action is None:
+            ann_action = []
+        elif not isinstance(ann_action, list):
+            tmp = ann_action
+            ann_action = []
+            ann_action.append(tmp)
+        if len(ann_action) == 0:
+            ann_action = [""]
+
+        # Compose annotation
+        annots = []
+        for act in ann_action:
+            for lbl in ann_label:
+                ann = "{} {}".format(act, lbl).strip()
+                ann_item = None
+                for val in ann_value:
+                    ann_item = "{}: {}".format(ann, val)
+                    annots.append(ann_item)  # Without units
+                    for unit in ann_unit:
+                        ann_item += "{}".format(unit)
+                        annots.append(ann_item)  # With units
+                if ann_item is None:
+                    annots.append(ann)
+
+        # Add last 2 annotation items without values
+        if len(ann_value) > 0:
+            for ann in ann_label[-2:]:
+                annots.append(ann)
+        annots.sort(key=len, reverse=True)
+        return annots
+
+    def put_data(self, bit_start, bit_stop, data):
+        """Span data output across bit range.
+
+        - Output is an annotation block from the start sample of the first bit
+          to the end sample of the last bit.
+        """
+        self.put(self.bits[bit_start][1], self.bits[bit_stop][2],
+                 self.out_ann, data)
+
+    def put_bit_data(self, bit_reserved):
+        """Span output under general data bit.
+
+        - Output is an annotation block from the start to the end sample
+          of a data bit.
+        """
+        annots = self.compose_annot(bits[AnnBits.DATA])
+        self.put(self.bits[bit_reserved][1], self.bits[bit_reserved][2],
+                 self.out_ann, [AnnBits.DATA, annots])
+
+    def put_bit_reserve(self, bit_reserved):
+        """Span output under reserved bit.
+
+        - Output is an annotation block from the start to the end sample
+          of a reserved bit.
+        """
+        annots = self.compose_annot(bits[AnnBits.RESERVED])
+        self.put(self.bits[bit_reserved][1], self.bits[bit_reserved][2],
+                 self.out_ann, [AnnBits.RESERVED, annots])
+
+    def check_addr(self, addr_slave):
+        """Check correct slave address."""
+        if addr_slave == Address.SLAVE:
             return True
-        self.put(self.ssb, self.es, self.out_ann,
-                 [AnnStrings.WARN,
-                  ["Unknown slave address ({:#04x})"
-                   .format(addr_slave)]])
+        annots = self.compose_annot(AnnInfo.BADADD,
+                                    ann_value=self.format_data(self.addr))
+        self.put(self.ssb, self.es, self.out_ann, [AnnInfo.BADADD, annots])
         return False
+
+    def collect_data(self, databyte):
+        """Collect data byte to a data cache."""
+        self.esd = self.es
+        if len(self.bytes) == 0:
+            self.ssd = self.ss
+            self.bytes.append(databyte)
+        else:
+            self.bytes.insert(0, databyte)
+
+    def clear_data(self):
+        """Clear data cache."""
+        self.ssd = self.esd = 0
+        self.bytes = []
+        self.bits = []
+
+    def format_data(self, data):
+        """Format data value according to the radix option."""
+        return radixes[self.options["radix"]].format(data)
+
+    def format_action(self):
+        """Format r/w action ."""
+        act_idx = AnnInfo.WRITE if (self.write) else AnnInfo.READ
+        return info[act_idx]
 
     def output_datetime(self, ann_index, rw_prefix):
         """Format datetime string and prefix it by recent r/w operation.
@@ -219,136 +453,125 @@ class Decoder(srd.Decoder):
         self.put(self.ssb, self.es, self.out_ann,
                  [ann_index, ["{} datetime: {}".format(rw_prefix, dt_str)]])
 
-    def put_data(self, bit_start, bit_stop, data):
-        """Span data output across bit range.
+    def handle_addr(self):
+        """Process slave address."""
+        if len(self.bytes) == 0:
+            return
+        # Registers row
+        self.addr = self.bytes[0]
+        annots = self.compose_annot(addresses[AnnAddrs.SLAVE])
+        self.put(self.ssd, self.esd, self.out_ann, [AnnAddrs.SLAVE, annots])
+        self.clear_data()
 
-        - Output is an annotation block from the start sample of the first bit
-          to the end sample of the last bit.
-        """
-        self.put(self.bits[bit_start][1], self.bits[bit_stop][2],
-                 self.out_ann, data)
+    def handle_nodata(self):
+        """Process transmission without any data."""
+        # Info row
+        annots = self.compose_annot(info[AnnInfo.CHECK])
+        self.put(self.ssb, self.es, self.out_ann, [AnnInfo.CHECK, annots])
 
-    def put_reserved(self, bit_reserved):
-        """Span output under reserved bit.
-
-        - Output is an annotation block from the start  to the end sample
-          of a reserved bit.
-        """
-        self.put(self.bits[bit_reserved][1], self.bits[bit_reserved][2],
-                 self.out_ann,
-                 [AnnBitsCtlr.RESERVED,
-                  [self.annotations[AnnBitsCtlr.RESERVED][1],
-                   "Reserved", "Rsvd", "R"]])
-
-    def handle_reg(self, databyte):
+    def handle_reg(self):
         """Create name and call corresponding slave registers handler.
 
-        - Honor address auto-increment feature of the DS1307. When the
-          address reaches maximal nvram position, it will wrap around
+        - Honor auto increment of the register at reading.
+        - When the address reaches maximal nvram position, it will wrap around
           to address 0.
         """
-        reg = self.reg if self.reg < self.NVRAM_MIN else self.NVRAM_MAX
+        reg = self.reg if self.reg < NvRAM.MIN else NvRAM.MAX
         fn = getattr(self, "handle_reg_{:#04x}".format(reg))
-        fn(databyte)
-        self.reg += 1
-        if self.reg > self.NVRAM_MAX:
+        fn()
+        self.reg += 1   # Address auto increment
+        if self.reg > NvRAM.MAX:    # Address rollover
             self.reg = 0
+        self.clear_data()
 
-    def handle_reg_0x00(self, databyte):
+    def handle_reg_0x00(self):
         """Process seconds (0-59) and Clock halt bit."""
-        # Registers row
-        self.put_data(7, 0, [AnnRegs.SECOND,
-                             [self.annotations[AnnRegs.SECOND][1],
-                              "Seconds", "Sec", "S"]])
         # Bits row - Clock Halt bit
-        ch = 1 if (databyte & (1 << bits["CH"])) else 0
-        annots = [self.annotations[AnnBitsCtlr.CH][1], "Clock halt", "Clk hlt",
-                  "CH", "CH", "C"]
-        for i in range(0, len(annots) - 2):
-            annots[i] += ": {}".format(ch)
-        self.put_data(bits["CH"], bits["CH"], [AnnBitsCtlr.CH, annots])
+        ch = 1 if (self.bytes[0] & (1 << TimeBits.CH)) else 0
+        ch_l = "Halt" if (ch) else "Run"
+        ch_s = ch_l[0].upper()
+        annots = self.compose_annot(bits[AnnBits.CH],
+                                    ann_value=[ch, ch_l, ch_s])
+        self.put_data(TimeBits.CH, TimeBits.CH, [AnnBits.CH, annots])
         # Bits row - Second bits
-        self.second = bcd2int(databyte & 0x7f)
-        annots = [self.annotations[AnnBitsTime.SECOND][1], "Second", "Sec",
-                  "S", "S"]
-        for i in range(0, len(annots) - 1):
-            annots[i] += ": {}".format(self.second)
-        self.put_data(6, 0, [AnnBitsTime.SECOND, annots])
-
-    def handle_reg_0x01(self, databyte):
-        """Process minutes (0-59)."""
+        self.second = bcd2int(self.bytes[0] & ~(1 << TimeBits.CH))
+        annots = self.compose_annot(bits[AnnBits.SECOND],
+                                    ann_value=self.second)
+        self.put_data(TimeBits.CH - 1, 0, [AnnBits.SECOND, annots])
         # Registers row
-        self.put_data(7, 0, [AnnRegs.MINUTE,
-                             [self.annotations[AnnRegs.MINUTE][1],
-                              "Minutes", "Min", "M"]])
-        # Bits row
-        self.put_reserved(7)
-        self.minute = bcd2int(databyte & 0x7f)
-        annots = [self.annotations[AnnBitsTime.MINUTE][1], "Minute", "Min",
-                  "M", "M"]
-        for i in range(0, len(annots) - 1):
-            annots[i] += ": {}".format(self.minute)
-        self.put_data(6, 0, [AnnBitsTime.MINUTE, annots])
+        annots = self.compose_annot(registers[AnnRegs.SECOND],
+                                    ann_action=self.format_action())
+        self.put(self.ssd, self.esd, self.out_ann, [AnnRegs.SECOND, annots])
 
-    def handle_reg_0x02(self, databyte):
+    def handle_reg_0x01(self):
+        """Process minutes (0-59)."""
+        # Bits row
+        self.put_bit_reserve(7)
+        self.minute = bcd2int(self.bytes[0] & 0x7f)
+        annots = self.compose_annot(bits[AnnBits.MINUTE],
+                                    ann_value=self.minute)
+        self.put_data(6, 0, [AnnBits.MINUTE, annots])
+        # Registers row
+        annots = self.compose_annot(registers[AnnRegs.MINUTE],
+                                    ann_action=self.format_action())
+        self.put(self.ssd, self.esd, self.out_ann, [AnnRegs.MINUTE, annots])
+
+    def handle_reg_0x02(self):
         """Process hours (1-12+AM/PM or 0-23) and 12/24 hours mode.
 
         - In case of 12 hours mode convert hours to 24 hours mode to instance
           variable for formatting.
         """
-        # Registers row
-        self.put_data(7, 0, [AnnRegs.HOUR,
-                             [self.annotations[AnnRegs.HOUR][1],
-                              "Hours", "Hrs", "Hr", "H"]])
         # Bits row
-        self.put_reserved(7)
-        mode12h = True if (databyte & (1 << bits["MODE"])) else False
+        self.put_bit_reserve(7)
+        mode12h = True if (self.bytes[0] & (1 << TimeBits.MODE)) else False
         if mode12h:
             # Bits row - 12h mode
-            annots = ["12 hours mode", "12h mode", "12h", "12"]
-            self.put_data(bits["MODE"], bits["MODE"],
-                          [AnnBitsCtlr.MODE, annots])
+            annots = self.compose_annot(bits[AnnBits.MODE],
+                                        ann_value="12h")
+            self.put_data(TimeBits.MODE, TimeBits.MODE, [AnnBits.MODE, annots])
             # Bits row - AM/PM mode
-            am = "PM" if (databyte & (1 << bits["AMPM"])) else "AM"
-            annots = [am, am[0]]
-            self.put_data(bits["AMPM"], bits["AMPM"],
-                          [AnnBitsCtlr.AMPM, annots])
+            pm = 1 if (self.bytes[0] & (1 << TimeBits.AMPM)) else 0
+            pm_l = "PM" if (pm) else "AM"
+            pm_s = pm_l[0].upper()
+            annots = self.compose_annot(bits[AnnBits.AMPM],
+                                        ann_value=[pm, pm_l, pm_s])
+            self.put_data(TimeBits.AMPM, TimeBits.AMPM, [AnnBits.AMPM, annots])
             # Bits row - hours
-            self.hour = bcd2int(databyte & 0x1f)
-            annots = [self.annotations[AnnBitsTime.HOUR][1], "Hour", "Hr",
-                      "H", "H"]
-            for i in range(0, len(annots) - 1):
-                annots[i] += ": {}".format(self.hour)
-            self.put_data(4, 0, [AnnBitsTime.HOUR, annots])
+            self.hour = bcd2int(self.bytes[0] & 0x1f)
+            annots = self.compose_annot(bits[AnnBits.HOUR],
+                                        ann_value=self.hour)
+            self.put_data(TimeBits.AMPM - 1, 0, [AnnBits.MODE, annots])
             # Convert to 24h expression
             self.hour %= 12
-            if am == "PM":
+            if pm:
                 self.hour += 12
         else:
             # Bits row - 24h mode
-            annots = ["24 hours mode", "24h mode", "24h", "24"]
-            self.put_data(6, 6, [AnnBitsCtlr.MODE, annots])
-            self.hour = bcd2int(databyte & 0x3f)
-            annots = [self.annotations[AnnBitsTime.HOUR][1], "Hour", "Hr",
-                      "H", "H"]
-            for i in range(0, len(annots) - 1):
-                annots[i] += ": {}".format(self.hour)
-            self.put_data(5, 0, [AnnBitsTime.HOUR, annots])
+            annots = self.compose_annot(bits[AnnBits.MODE],
+                                        ann_value="24h")
+            self.put_data(TimeBits.MODE, TimeBits.MODE, [AnnBits.MODE, annots])
+            # Bits row - hours
+            self.hour = bcd2int(self.bytes[0] & 0x3f)
+            annots = self.compose_annot(bits[AnnBits.HOUR],
+                                        ann_value=self.hour)
+            self.put_data(TimeBits.MODE - 1, 0, [AnnBits.MODE, annots])
+        # Registers row
+        annots = self.compose_annot(registers[AnnRegs.HOUR],
+                                    ann_action=self.format_action())
+        self.put(self.ssd, self.esd, self.out_ann, [AnnRegs.HOUR, annots])
 
-    def handle_reg_0x03(self, databyte):
+    def handle_reg_0x03(self):
         """Process weekday (1-7).
 
         - Recalculate weekday in respect to starting weekday option to instance
           variable for formatting.
         """
-        # Registers row
-        self.put_data(7, 0, [AnnRegs.WEEKDAY,
-                             [self.annotations[AnnRegs.WEEKDAY][1],
-                              "Weekdays", "Wday", "WD", "W"]])
-        # Bits row
+        # Bits row - reserved
         for i in range(7, 2, -1):
-            self.put_reserved(i)
-        self.weekday = bcd2int(databyte & 0x07)
+            self.put_bit_reserve(i)
+        # Bits row - calculate weekday
+        self.weekday = bcd2int(self.bytes[0] & 0x07)
         start_weekday_index = 0
         for i, weekday in enumerate(weekdays):
             if weekday == self.options["start_weekday"]:
@@ -356,120 +579,106 @@ class Decoder(srd.Decoder):
                 break
         start_weekday_index += self.weekday - 1
         start_weekday_index %= 7
-        weekday = weekdays[start_weekday_index]
-        annots = [self.annotations[AnnBitsTime.WEEKDAY][1], "Weekday", "WD",
-                  "WD", "W"]
-        for i in range(0, len(annots) - 2):
-            annots[i] += ": {}".format(weekday)
-        self.put_data(2, 0, [AnnBitsTime.WEEKDAY, annots])
         self.weekday = start_weekday_index
-
-    def handle_reg_0x04(self, databyte):
-        """Process day (1-31)."""
+        weekday = weekdays[self.weekday]
+        # Bits row - weekday
+        annots = self.compose_annot(bits[AnnBits.WEEKDAY],
+                                    ann_value=weekday)
+        self.put_data(2, 0, [AnnBits.WEEKDAY, annots])
         # Registers row
-        self.put_data(7, 0, [AnnRegs.DAY,
-                             [self.annotations[AnnRegs.DAY][1],
-                              "Days", "Day", "D"]])
+        annots = self.compose_annot(registers[AnnRegs.WEEKDAY],
+                                    ann_action=self.format_action())
+        self.put(self.ssd, self.esd, self.out_ann, [AnnRegs.WEEKDAY, annots])
+
+    def handle_reg_0x04(self):
+        """Process day (1-31)."""
         # Bits row
         for i in (7, 6):
-            self.put_reserved(i)
-        self.day = bcd2int(databyte & 0x3f)
-        annots = [self.annotations[AnnBitsTime.DAY][1], "Day", "D", "D"]
-        for i in range(0, len(annots) - 1):
-            annots[i] += ": {}".format(self.day)
-        self.put_data(5, 0, [AnnBitsTime.DAY, annots])
-
-    def handle_reg_0x05(self, databyte):
-        """Process month (1-12)."""
+            self.put_bit_reserve(i)
+        self.day = bcd2int(self.bytes[0] & 0x3f)
+        annots = self.compose_annot(bits[AnnBits.DAY],
+                                    ann_value=self.day)
+        self.put_data(5, 0, [AnnBits.DAY, annots])
         # Registers row
-        self.put_data(7, 0, [AnnRegs.MONTH,
-                             [self.annotations[AnnRegs.MONTH][1],
-                              "Months", "Month", "Mon", "M"]])
+        annots = self.compose_annot(registers[AnnRegs.DAY],
+                                    ann_action=self.format_action())
+        self.put(self.ssd, self.esd, self.out_ann, [AnnRegs.DAY, annots])
+
+    def handle_reg_0x05(self):
+        """Process month (1-12)."""
         # Bits row
         for i in range(7, 4, -1):
-            self.put_reserved(i)
-        self.month = bcd2int(databyte & 0x1f)
-        annots = [self.annotations[AnnBitsTime.MONTH][1], "Month", "Mon",
-                  "M", "M"]
-        for i in range(0, len(annots) - 1):
-            annots[i] += ": {}".format(self.month)
-        self.put_data(4, 0, [AnnBitsTime.MONTH, annots])
+            self.put_bit_reserve(i)
+        self.month = bcd2int(self.bytes[0] & 0x1f)
+        annots = self.compose_annot(bits[AnnBits.MONTH],
+                                    ann_value=months[self.month])
+        self.put_data(4, 0, [AnnBits.MONTH, annots])
+        # Registers row
+        annots = self.compose_annot(registers[AnnRegs.MONTH],
+                                    ann_action=self.format_action())
+        self.put(self.ssd, self.esd, self.out_ann, [AnnRegs.MONTH, annots])
 
-    def handle_reg_0x06(self, databyte):
+    def handle_reg_0x06(self):
         """Process year (0-99).
 
         - Add 2000 to double digit year number (expect 21st century)
           to instance variable for formatting.
         """
-        # Registers row
-        self.put_data(7, 0, [AnnRegs.YEAR,
-                             [self.annotations[AnnRegs.YEAR][1],
-                              "Years", "Year", "Yr", "Y"]])
         # Bits row
-        self.year = bcd2int(databyte & 0xff)
-        annots = [self.annotations[AnnBitsTime.YEAR][1], "Year", "Yr",
-                  "Y", "Y"]
-        for i in range(0, len(annots) - 1):
-            annots[i] += ": {}".format(self.year)
-        self.put_data(7, 0, [AnnBitsTime.YEAR, annots])
+        self.year = bcd2int(self.bytes[0] & 0xff)
         self.year += 2000
-
-    def handle_reg_0x07(self, databyte):
-        """Process control register."""
+        annots = self.compose_annot(bits[AnnBits.YEAR],
+                                    ann_value=self.year)
+        self.put_data(7, 0, [AnnBits.YEAR, annots])
         # Registers row
-        self.put_data(7, 0, [AnnRegs.CONTROL,
-                             [self.annotations[AnnRegs.CONTROL][1],
-                              "Control", "Ctrl", "C"]])
+        annots = self.compose_annot(registers[AnnRegs.YEAR],
+                                    ann_action=self.format_action())
+        self.put(self.ssd, self.esd, self.out_ann, [AnnRegs.YEAR, annots])
+
+    def handle_reg_0x07(self):
+        """Process control register."""
         # Bits row
         for i in (6, 5, 3, 2):
-            self.put_reserved(i)
+            self.put_bit_reserve(i)
         # Bits row - OUT bit
-        out = 1 if (databyte & (1 << bits["OUT"])) else 0
-        annots = [self.annotations[AnnBitsCtlr.OUT][1], "OUT", "O", "O"]
-        for i in range(0, len(annots) - 1):
-            annots[i] += ": {}".format(out)
-        self.put_data(bits["OUT"], bits["OUT"], [AnnBitsCtlr.OUT, annots])
+        out = 1 if (self.bytes[0] & (1 << ControlBits.OUT)) else 0
+        annots = self.compose_annot(bits[AnnBits.OUT],
+                                    ann_value=out)
+        self.put_data(ControlBits.OUT, ControlBits.OUT, [AnnBits.OUT, annots])
         # Bits row - SQWE bit
-        sqwe = 1 if (databyte & (1 << bits["SQWE"])) else 0
-        sqwe_txt = ("en" if (sqwe) else "dis") + "abled"
-        annots = [self.annotations[AnnBitsCtlr.SQWE][1], "SQWE"]
-        for i in range(0, len(annots)):
-            annots[i] += ": {}".format(sqwe_txt)
-        annots_alt = ["SQWE", "SW", "S", "S"]
-        for i in range(0, len(annots_alt) - 1):
-            annots_alt[i] += ": {}".format(sqwe)
-        annots.extend(annots_alt)
-        self.put_data(bits["SQWE"], bits["SQWE"], [AnnBitsCtlr.SQWE, annots])
+        sqwe = 1 if (self.bytes[0] & (1 << ControlBits.SQWE)) else 0
+        sqwe_l = ("en" if (sqwe) else "dis") + "abled"
+        sqwe_s = sqwe_l[0].upper()
+        annots = self.compose_annot(bits[AnnBits.SQWE],
+                                    ann_value=[sqwe, sqwe_l, sqwe_s])
+        self.put_data(ControlBits.SQWE, ControlBits.SQWE,
+                      [AnnBits.SQWE, annots])
         # Bits row - RS bits
-        rate = rates[databyte & 0x03]
-        annots = [self.annotations[AnnBitsCtlr.RATE][1],
-                  "Square wave rate", "SQW rate"]
-        for i in range(0, len(annots)):
-            annots[i] += ": {} Hz".format(rate)
-        annots_alt = [self.annotations[AnnBitsCtlr.RATE][1],
-                      "Square wave rate", "SQW rate", "Rate", "RS"]
+        rate = rates[self.bytes[0] & 0x03]
+        annots = self.compose_annot(bits[AnnBits.RS0],
+                                    ann_value=rate,
+                                    ann_unit=params["UNIT_HZ"])
         rate //= 1000
-        for i in range(0, len(annots_alt)):
-            annots_alt[i] += ": {} kHz".format(rate)
-        annots.extend(annots_alt)
-        annots_alt = ["SQW rate", "Rate", "RS", "RS", "R"]
-        for i in range(0, len(annots_alt) - 2):
-            annots_alt[i] += ": {}".format(rate)
-        annots.extend(annots_alt)
-        self.put_data(bits["RS1"], bits["RS0"], [AnnBitsCtlr.RATE, annots])
-
-    def handle_reg_0x3f(self, databyte):
-        """Process NVRAM."""
+        annots_add = self.compose_annot(bits[AnnBits.RS0],
+                                        ann_value=rate,
+                                        ann_unit=params["UNIT_KHZ"])
+        annots.extend(annots_add)
+        self.put_data(ControlBits.RS1, ControlBits.RS0, [AnnBits.RS0, annots])
         # Registers row
-        self.put_data(7, 0, [AnnRegs.NVRAM,
-                             [self.annotations[AnnRegs.NVRAM][1],
-                              "NVRAM", "RAM", "R"]])
+        annots = self.compose_annot(registers[AnnRegs.CONTROL],
+                                    ann_action=self.format_action())
+        self.put(self.ssd, self.esd, self.out_ann, [AnnRegs.CONTROL, annots])
+
+    def handle_reg_0x3f(self):
+        """Process NVRAM."""
         # Bits row
-        annots = [self.annotations[AnnBitsTime.NVRAM][1], "NVRAM", "RAM",
-                  "R", "R"]
-        for i in range(0, len(annots) - 1):
-            annots[i] += ": {:#04x}".format(databyte)
-        self.put_data(7, 0, [AnnBitsTime.NVRAM, annots])
+        annots = self.compose_annot(bits[AnnBits.NVRAM],
+                                    ann_value=self.format_data(self.bytes[0]))
+        self.put_data(7, 0, [AnnBits.NVRAM, annots])
+        # Registers row
+        annots = self.compose_annot(registers[AnnRegs.NVRAM],
+                                    ann_action=self.format_action())
+        self.put(self.ssd, self.esd, self.out_ann, [AnnRegs.NVRAM, annots])
 
     def decode(self, startsample, endsample, data):
         """Decode samples provided by parent decoder."""
@@ -486,74 +695,51 @@ class Decoder(srd.Decoder):
               (MSB) as it is at representing numbers in computers, although I2C
               bus transmits data in oposite order with MSB first.
             """
-            self.bits = databyte
+            self.bits = databyte + self.bits
             return
 
         # State machine
         if self.state == "IDLE":
-            """Wait for an I2C START condition.
-            - By start condition a new transmission begins.
-            """
+            """Wait for an I2C transmission."""
             if cmd != "START":
                 return
-            self.state = "ADDRESS SLAVE"
             self.ssb = self.ss
+            self.state = "ADDRESS SLAVE"
 
         elif self.state == "ADDRESS SLAVE":
-            """Wait for a slave address write operation.
-            - Every transmission starts with writing a register pointer
-              to the chip, so that the slave address should be always
-              followed by the write bit.
-            """
-            if cmd != "ADDRESS WRITE":
-                return
-            if not self.check_slave(databyte):
-                self.state = "IDLE"  # Start waiting for expected transmission
-                return
-            self.state = "ADDRESS REGISTER"
+            """Wait for a slave address."""
+            if cmd in ["ADDRESS WRITE", "ADDRESS READ"]:
+                if self.check_addr(databyte):
+                    self.collect_data(databyte)
+                    self.handle_addr()
+                    if cmd == "ADDRESS READ":
+                        self.write = False
+                        self.state = "REGISTER DATA"
+                    elif cmd == "ADDRESS WRITE":
+                        self.write = True
+                        self.state = "REGISTER ADDRESS"
+                else:
+                    self.state = "IDLE"
 
-        elif self.state == "ADDRESS REGISTER":
-            """Wait for a data write.
-            - Master selects the slave register.
-            """
-            if cmd != "DATA WRITE":
-                return
-            self.reg = databyte
-            self.state = "REGISTER WRITE"
-
-        elif self.state == "REGISTER WRITE":
-            """Analyze situation after selecting slave register.
-            - Repeated Start condition signals, that reading sequence follows.
-            - Subsequent writes signals writing to the slave.
-            - Otherwise Stop condition is expected.
-            """
-            if cmd == "START REPEAT":
-                self.state = "REGISTER READ"
-                return
-            elif cmd == "DATA WRITE":
-                """Contiuous writing to subsequent registers."""
-                self.handle_reg(databyte)
+        elif self.state == "REGISTER ADDRESS":
+            """Initial slave register"""
+            if cmd == "DATA WRITE":
+                self.reg = databyte
+                self.state = "REGISTER DATA"
             elif cmd == "STOP":
-                """Output formatted string with written data.
-                - This is end of an I2C transmission. Start waiting for another
-                  one.
-                """
-                self.output_datetime(AnnStrings.DTWRITE, "Written")
-                self.state = "IDLE"  # Start waiting for another transmission
+                """Output end of transmission without any register and data."""
+                self.handle_nodata()
+                self.state = "IDLE"
 
-        elif self.state == "REGISTER READ":
-            """Wait for a slave address read operation.
-            - This is start of reading sequence with preceeding slave address.
-            """
-            if cmd != "ADDRESS READ":
-                return
-            if not self.check_slave(databyte):
-                self.state = "IDLE"  # Start waiting for expected transmission
-                return
-            self.state = "SUBSEQUENT READ"
-        elif self.state == "SUBSEQUENT READ":
-            if cmd == "DATA READ":
-                self.handle_reg(databyte)
+        elif self.state == "REGISTER DATA":
+            """Process slave register"""
+            if cmd in ["DATA WRITE", "DATA READ"]:
+                self.collect_data(databyte)
+                self.handle_reg()
+                self.state = "REGISTER DATA"
+            elif cmd == "START REPEAT":
+                self.ssb = self.ss
+                self.state = "ADDRESS SLAVE"
             elif cmd == "STOP":
-                self.output_datetime(AnnStrings.DTREAD, "Read")
-                self.state = "IDLE"  # Start waiting for another transmission
+                """Wait for next transmission."""
+                self.state = "IDLE"
