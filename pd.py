@@ -428,7 +428,7 @@ class Decoder(srd.Decoder):
         act_idx = AnnInfo.WRITE if (self.write) else AnnInfo.READ
         return info[act_idx]
 
-    def output_datetime(self, ann_index, rw_prefix):
+    def output_datetime(self):
         """Format datetime string and prefix it by recent r/w operation.
 
         - Applied decoder options for the starting weekday and date format.
@@ -450,8 +450,10 @@ class Decoder(srd.Decoder):
             self.second, self.minute, self.hour,
             weekdays[self.weekday], self.day, self.month, self.year,
         )
-        self.put(self.ssb, self.es, self.out_ann,
-                 [ann_index, ["{} datetime: {}".format(rw_prefix, dt_str)]])
+        annots = self.compose_annot(info[AnnInfo.DATETIME],
+                                    ann_value=dt_str,
+                                    ann_action=self.format_action())
+        self.put(self.ssb, self.es, self.out_ann, [AnnInfo.DATETIME, annots])
 
     def handle_addr(self):
         """Process slave address."""
@@ -738,8 +740,8 @@ class Decoder(srd.Decoder):
                 self.handle_reg()
                 self.state = "REGISTER DATA"
             elif cmd == "START REPEAT":
-                self.ssb = self.ss
                 self.state = "ADDRESS SLAVE"
             elif cmd == "STOP":
                 """Wait for next transmission."""
+                self.output_datetime()
                 self.state = "IDLE"
