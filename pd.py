@@ -597,10 +597,10 @@ class Decoder(srd.Decoder):
         annots = hlp.compose_annot(registers[ann], ann_action=act)
         self.put(self.ssd, self.es, self.out_ann, [ann, annots])
 
-    def decode(self, startsample, endsample, data):
+    def decode(self, ss, es, data):
         """Decode samples provided by parent decoder."""
         cmd, databyte = data
-        self.ss, self.es = startsample, endsample
+        self.ss, self.es = ss, es
 
         if cmd == "BITS":
             """Collect packet of bits that belongs to the following command.
