@@ -80,9 +80,10 @@ class AnnRegs:
     """Enumeration of annotations for registers."""
 
     (
+        POINTER,
         SECOND, MINUTE, HOUR, WEEKDAY, DAY, MONTH, YEAR,
         CONTROL, NVRAM
-    ) = range(AnnAddrs.SLAVE + 1, (AnnAddrs.SLAVE + 1) + 9)
+    ) = range(AnnAddrs.SLAVE + 1, (AnnAddrs.SLAVE + 1) + 10)
 
 
 class AnnBits:
@@ -137,6 +138,7 @@ addresses = {
 }
 
 registers = {
+    AnnRegs.POINTER: ["Register pointer", "Pointer", "Ptr", "P"],
     AnnRegs.SECOND: ["Seconds register", "Seconds", "Secs", "S"],
     AnnRegs.MINUTE: ["Minutes register", "Minutes", "Mins", "M"],
     AnnRegs.HOUR: ["Hours register", "Hours", "Hrs", "H"],
@@ -338,13 +340,24 @@ class Decoder(srd.Decoder):
         annots = hlp.compose_annot(info[ann], ann_value=val, ann_action=act)
         self.put(self.ssb, self.es, self.out_ann, [ann, annots])
 
-    def handle_addr(self):
+    def handle_address(self):
         """Process slave address."""
         if not self.bytes:
             return
         # Registers row
         ann = AnnAddrs.SLAVE
         annots = hlp.compose_annot(addresses[ann])
+        self.put(self.ssd, self.es, self.out_ann, [ann, annots])
+        self.clear_data()
+
+    def handle_pointer(self):
+        """Process register pointer."""
+        # Registers row
+        ann = AnnRegs.POINTER
+        val = hlp.format_data(self.reg, self.options["radix"])
+        act = self.format_rw()
+        annots = hlp.compose_annot(registers[ann], ann_value=val,
+                                   ann_action=act)
         self.put(self.ssd, self.es, self.out_ann, [ann, annots])
         self.clear_data()
 
@@ -381,7 +394,7 @@ class Decoder(srd.Decoder):
         annots = hlp.compose_annot(bits[ann], ann_value=val)
         self.putd(TimeBits.CH, TimeBits.CH, [ann, annots])
         # Bits row - Second bits
-        self.second = hlp.bcd2int(self.bytes[0] & ~(1 << TimeBits.CH))
+        self.second = hlp.bcd2int(databyte & ~(1 << TimeBits.CH))
         ann = AnnBits.SECOND
         val = self.second
         annots = hlp.compose_annot(bits[ann], ann_value=val)
@@ -615,7 +628,7 @@ class Decoder(srd.Decoder):
             if cmd in ["ADDRESS WRITE", "ADDRESS READ"]:
                 if self.check_addr(databyte):
                     self.collect_data(databyte)
-                    self.handle_addr()
+                    self.handle_address()
                     if cmd == "ADDRESS READ":
                         self.write = False
                         self.state = "REGISTER DATA"
@@ -629,6 +642,8 @@ class Decoder(srd.Decoder):
             """Initial slave register"""
             if cmd == "DATA WRITE":
                 self.reg = databyte
+                self.collect_data(databyte)
+                self.handle_pointer()
                 self.state = "REGISTER DATA"
             elif cmd == "STOP":
                 """Output end of transmission without any register and data."""
